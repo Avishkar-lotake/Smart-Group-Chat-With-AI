@@ -1,0 +1,491 @@
+import React, { useState, useEffect, useContext, useRef } from 'react'
+import { UserContext } from '../context/User.context'
+import { useLocation } from 'react-router-dom'
+import axios from '../config/axios'
+import { initializeSocket, receiveMessage, sendMessage } from '../config/socket'
+import Markdown from 'markdown-to-jsx'
+import hljs from 'highlight.js'
+import { getWebContainer } from '../config/webcontainer'
+
+function SyntaxHighlightedCode(props) {
+    const ref = useRef(null)
+
+    useEffect(() => {
+        if (ref.current && props.className?.includes('lang-') && window.hljs) {
+            window.hljs.highlightElement(ref.current)
+            ref.current.removeAttribute('data-highlighted')
+        }
+    }, [props.className, props.children])
+
+    return <code {...props} ref={ref} />
+}
+
+const Project = () => {
+
+    const location = useLocation()
+    const { user } = useContext(UserContext)
+
+    const messageBox = useRef()
+
+    const [project, setProject] = useState(location.state.project)
+    const [message, setMessage] = useState('')
+    const [messages, setMessages] = useState([])
+    const [users, setUsers] = useState([])
+    const [fileTree, setFileTree] = useState({})
+    const [currentFile, setCurrentFile] = useState(null)
+    const [openFiles, setOpenFiles] = useState([])
+
+    const [isSidePanelOpen, setIsSidePanelOpen] = useState(false)
+    const [isModalOpen, setIsModalOpen] = useState(false)
+    const [selectedUserId, setSelectedUserId] = useState(new Set())
+    const [rightPanelContent, setRightPanelContent] = useState(null)
+
+    const [webContainer, setWebContainer] = useState(null)
+    const [iframeUrl, setIframeUrl] = useState(null)
+    const [runProcess, setRunProcess] = useState(null)
+
+    /* ---------------- SOCKET + INIT ---------------- */
+
+    useEffect(() => {
+
+        initializeSocket(project._id)
+
+        getWebContainer().then(container => {
+            setWebContainer(container)
+        })
+
+        receiveMessage('project-message', data => {
+            console.log("📨 AI message received from socket");
+            
+            if (data.sender._id == 'ai') {
+
+                let messageObj;
+
+                try {
+                    messageObj =
+                        typeof data.message === "string"
+                            ? JSON.parse(data.message)
+                            : data.message;
+                } catch (error) {
+                    messageObj = { text: data.message, fileTree: {} };
+                }
+
+                const rawMessage = typeof data.message === "string" ? data.message : "";
+                messageObj = {
+                    text: messageObj.text ?? messageObj.message ?? messageObj.content ?? rawMessage,
+                    fileTree: messageObj.fileTree ?? {}
+                };
+                if (typeof messageObj.text !== "string") messageObj.text = String(messageObj.text ?? "");
+
+                // If AI provided a fileTree, mount it into the WebContainer and update local state
+                if (messageObj.fileTree && Object.keys(messageObj.fileTree).length > 0) {
+                    console.log("✅ FileTree from AI:", Object.keys(messageObj.fileTree));
+                    webContainer?.mount(messageObj.fileTree);
+                    setFileTree(messageObj.fileTree);
+                }
+
+                setMessages(prev => [...prev, {
+                    ...data,
+                    message: messageObj
+                }])
+
+                // Extract and display content in right panel
+                const extractedContent = extractContentFromResponse(messageObj);
+                setRightPanelContent(extractedContent)
+            }
+            else {
+                setMessages(prev => [...prev, data])
+            }
+        })
+
+        axios.get(`/projects/get-project/${project._id}`)
+            .then(res => {
+                setProject(res.data.project)
+                // Start with empty fileTree for clean slate with new AI feature
+                setFileTree({})
+            })
+
+        axios.get('/users/all')
+            .then(res => setUsers(res.data.users))
+
+    }, [])
+
+    // Auto-scroll to bottom when messages change
+    useEffect(() => {
+        if (messageBox.current) {
+            messageBox.current.scrollTop = messageBox.current.scrollHeight
+        }
+    }, [messages])
+
+    /* ---------------- EXTRACT AI RESPONSE CONTENT ---------------- */
+    // Main content is always messageObj.text (normalized in socket handler). Other keys are optional.
+
+    function extractContentFromResponse(messageObj) {
+        const mainText = messageObj.text || "";
+        const hasFiles = messageObj.fileTree && Object.keys(messageObj.fileTree).length > 0;
+
+        if (Array.isArray(messageObj.steps) && messageObj.steps.length > 0) {
+            return {
+                type: 'steps',
+                content: messageObj.steps.map(step =>
+                    typeof step === 'string' ? step : step.text || JSON.stringify(step)
+                ),
+                ...(mainText && { mainText }),
+                ...(hasFiles && { fileTree: messageObj.fileTree })
+            }
+        }
+        if (Array.isArray(messageObj.explanation) && messageObj.explanation.length > 0) {
+            return {
+                type: 'explanation',
+                content: messageObj.explanation.map(exp =>
+                    typeof exp === 'string' ? exp : exp.text || exp.description || JSON.stringify(exp)
+                ),
+                ...(mainText && { mainText }),
+                ...(hasFiles && { fileTree: messageObj.fileTree })
+            }
+        }
+        if (messageObj.code && typeof messageObj.code === 'object') {
+            const files = Object.entries(messageObj.code).map(([filename, content]) => ({
+                filename,
+                content: typeof content === 'string' ? content : JSON.stringify(content, null, 2)
+            }))
+            return { type: 'code', content: files, ...(mainText && { mainText }), ...(hasFiles && { fileTree: messageObj.fileTree }) }
+        }
+        if (hasFiles) {
+            return {
+                type: 'files',
+                content: messageObj.fileTree,
+                ...(mainText && { mainText })
+            }
+        }
+        return {
+            type: 'text',
+            content: mainText || JSON.stringify(messageObj)
+        }
+    }
+
+    /* ---------------- AI MESSAGE RENDER COMPONENT FOR RIGHT PANEL ---------------- */
+
+    function RenderRightPanelContent({ content }) {
+        if (!content) return null;
+
+        const { type, content: data } = content;
+
+        if (type === 'steps' || type === 'explanation') {
+            return (
+                <div className="space-y-3">
+                    {Array.isArray(data) && data.map((item, idx) => (
+                        <div key={idx} className="p-3 bg-slate-100 rounded border-l-4 border-blue-500">
+                            <Markdown>{item}</Markdown>
+                        </div>
+                    ))}
+                </div>
+            )
+        }
+
+        if (type === 'code') {
+            return (
+                <div className="space-y-4">
+                    {Array.isArray(data) && data.map((file, idx) => (
+                        <div key={idx} className="border border-slate-300 rounded overflow-hidden">
+                            <div className="bg-slate-800 text-white p-2 font-mono text-xs flex justify-between items-center">
+                                <span>{file.filename}</span>
+                                <button 
+                                    onClick={() => navigator.clipboard.writeText(file.content)}
+                                    className="text-xs px-2 py-1 bg-slate-700 hover:bg-slate-600 rounded"
+                                >
+                                    Copy
+                                </button>
+                            </div>
+                            <pre className="p-4 bg-slate-950 text-green-400 overflow-auto text-xs">
+                                <code>{file.content}</code>
+                            </pre>
+                        </div>
+                    ))}
+                </div>
+            )
+        }
+
+        if (type === 'files') {
+            const fileData = content.content ?? data;
+            const mainText = content.mainText;
+            return (
+                <div className="space-y-4">
+                    {mainText && (
+                        <div className="prose max-w-none">
+                            <Markdown>{mainText}</Markdown>
+                        </div>
+                    )}
+                    <div className="space-y-3">
+                        {Object.entries(fileData).map(([filename, fileObj], idx) => (
+                            <div key={idx} className="border border-slate-300 rounded overflow-hidden">
+                                <div className="bg-slate-800 text-white p-2 font-mono text-xs">
+                                    {filename}
+                                </div>
+                                <pre className="p-4 bg-slate-950 text-green-400 overflow-auto text-xs max-h-64">
+                                    <code>{fileObj.file?.contents || JSON.stringify(fileObj, null, 2)}</code>
+                                </pre>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )
+        }
+
+        // Default text rendering
+        return (
+            <div className="prose max-w-none">
+                <Markdown>{data}</Markdown>
+            </div>
+        )
+    }
+
+    /* ---------------- MESSAGE SEND ---------------- */
+
+    const send = () => {
+        if (!message.trim()) return
+
+        sendMessage('project-message', { message, sender: user })
+        setMessages(prev => [...prev, { sender: user, message }])
+        setMessage('')
+    }
+
+    /* ---------------- AI MESSAGE RENDER ---------------- */
+
+   function WriteAiMessage(message) {
+
+    let messageObject;
+
+    try {
+        if (typeof message === "string") {
+            messageObject = JSON.parse(message);
+        } else if (typeof message === "object" && message !== null) {
+            messageObject = message;
+        } else {
+            messageObject = { text: String(message) };
+        }
+    } catch (error) {
+        console.error("Error parsing message:", error);
+        messageObject = { text: String(message) };
+    }
+
+    const displayText = messageObject?.text || "";
+
+    return (
+        <div className='overflow-auto bg-slate-950 text-white rounded-sm p-2'>
+            <Markdown
+                children={displayText}
+                options={{
+                    overrides: {
+                        code: SyntaxHighlightedCode,
+                    },
+                }}
+            />
+        </div>
+    );
+}
+function saveFileTree(ft) {
+    axios.put('/projects/update-file-tree', {
+        projectId: project._id,
+        fileTree: ft
+    }).catch(console.error)
+}
+
+    /* ---------------- RUN PROJECT ---------------- */
+
+    async function runProject() {
+
+        if (!webContainer) return
+
+        await webContainer.mount(fileTree)
+
+        const install = await webContainer.spawn("npm", ["install"])
+
+        install.output.pipeTo(new WritableStream({
+            write(data) { console.log(data) }
+        }))
+
+        if (runProcess) runProcess.kill()
+
+        const start = await webContainer.spawn("npm", ["start"])
+
+        start.output.pipeTo(new WritableStream({
+            write(data) { console.log(data) }
+        }))
+
+        setRunProcess(start)
+
+        webContainer.on('server-ready', (port, url) => {
+            setIframeUrl(url)
+        })
+    }
+
+    /* ---------------- UI ---------------- */
+
+    return (
+        <main className='h-screen w-screen flex'>
+
+            {/* LEFT CHAT PANEL */}
+            <section className="left relative flex flex-col h-screen min-w-96 bg-slate-300">
+
+                <header className='flex justify-between items-center p-2 px-4 w-full bg-slate-100 absolute z-10 top-0'>
+                    <button className='flex gap-2' onClick={() => setIsModalOpen(true)}>
+                        <i className="ri-add-fill mr-1"></i>
+                        <p>Add collaborator</p>
+                    </button>
+
+                    <button onClick={() => setIsSidePanelOpen(!isSidePanelOpen)} className='p-2'>
+                        <i className="ri-group-fill"></i>
+                    </button>
+                </header>
+
+                <div className="conversation-area pt-14 pb-10 flex-grow flex flex-col h-full relative">
+
+                    <div ref={messageBox}
+                        className="message-box p-1 flex-grow flex flex-col gap-1 overflow-auto">
+
+                        {messages.map((msg, i) => (
+                            <div key={i}
+                                className={`${msg.sender._id === 'ai' ? 'max-w-80' : 'max-w-52'} 
+                                ${msg.sender._id === user?._id ? 'ml-auto' : ''} 
+                                message flex flex-col p-2 bg-slate-50 w-fit rounded-md`}>
+
+                                <small className='opacity-65 text-xs'>{msg.sender.email}</small>
+
+                                <div className='text-sm'>
+                                    {msg.sender._id === 'ai'
+                                        ? WriteAiMessage(msg.message)
+                                        : <p>{msg.message}</p>}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+
+                    <div className="inputField w-full flex absolute bottom-0">
+                        <input
+                            value={message}
+                            onChange={e => setMessage(e.target.value)}
+                            className='p-2 px-4 flex-grow'
+                            placeholder='Enter message'
+                        />
+                        <button onClick={send}
+                            className='px-5 bg-slate-950 text-white'>
+                            <i className="ri-send-plane-fill"></i>
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            {/* RIGHT UNIFIED PANEL - Shows AI Responses & Files */}
+            <section className="right bg-slate-50 flex-grow h-full flex flex-col">
+
+                {/* Header */}
+                <div className="p-4 bg-slate-200 border-b border-slate-300 flex justify-between items-center">
+                    <h3 className="font-semibold text-slate-700">
+                        {rightPanelContent ? 'AI Response' : 'Files & Code'}
+                    </h3>
+                    {rightPanelContent && (
+                        <button 
+                            onClick={() => setRightPanelContent(null)}
+                            className="text-slate-500 hover:text-slate-700">
+                            <i className="ri-close-line text-xl"></i>
+                        </button>
+                    )}
+                </div>
+
+                {/* Content Area */}
+                <div className="flex-grow overflow-auto p-4">
+                    {rightPanelContent ? (
+                        <RenderRightPanelContent content={rightPanelContent} />
+                    ) : (
+                        <div>
+                            {/* FILE TREE Display */}
+                            {Object.keys(fileTree).length > 0 ? (
+                                <div className="space-y-2">
+                                    {Object.keys(fileTree).map(file => (
+                                        <button key={file}
+                                            onClick={() => {
+                                                setCurrentFile(file)
+                                                setOpenFiles([...new Set([...openFiles, file])])
+                                            }}
+                                            className="p-2 px-4 w-full bg-slate-300 text-left hover:bg-slate-400 rounded">
+                                            📄 {file}
+                                        </button>
+                                    ))}
+                                </div>
+                            ) : (
+                                <p className="text-slate-500 text-center py-4">No files or AI responses</p>
+                            )}
+                        </div>
+                    )}
+                </div>
+            </section>
+
+            {/* EDITOR SECTION - Shows selected file content */}
+            <section className="editor-section flex-1 flex flex-col h-screen bg-white">
+                {currentFile && (
+                    <>
+                        <div className="p-2 bg-slate-300 border-b">
+                            <div className="flex justify-between items-center">
+                                <div className="flex">
+                                    {openFiles.map(file => (
+                                        <button key={file}
+                                            onClick={() => setCurrentFile(file)}
+                                            className={`p-2 px-4 ${currentFile === file ? 'bg-slate-400' : 'bg-slate-300'}`}>
+                                            {file}
+                                        </button>
+                                    ))}
+                                </div>
+
+                                <button onClick={runProject}
+                                    className='p-2 px-4 bg-slate-300'>
+                                    run
+                                </button>
+                            </div>
+                        </div>
+
+                        <div className="flex flex-grow overflow-auto">
+                            {fileTree[currentFile] && (
+                                <pre className="hljs w-full h-full">
+                                    <code
+                                        contentEditable
+                                        suppressContentEditableWarning
+                                        onBlur={e => {
+                                            const updated = e.target.innerText
+                                            const ft = {
+                                                ...fileTree,
+                                                [currentFile]: { file: { contents: updated } }
+                                            }
+                                            setFileTree(ft)
+                                            saveFileTree(ft)
+                                        }}
+                                        dangerouslySetInnerHTML={{
+                                            __html: hljs.highlight(
+                                                'javascript',
+                                                fileTree[currentFile]?.file?.contents || ''
+                                            ).value
+                                        }}
+                                    />
+                                </pre>
+                            )}
+                        </div>
+                    </>
+                )}
+
+                {/* PREVIEW */}
+                {iframeUrl &&
+                    <div className="min-w-96 flex flex-col">
+                        <input
+                            value={iframeUrl}
+                            onChange={e => setIframeUrl(e.target.value)}
+                            className="p-2 bg-slate-200"
+                        />
+                        <iframe src={iframeUrl} className="w-full h-full" />
+                    </div>
+                }
+            </section>
+        </main>
+    )
+}
+
+export default Project

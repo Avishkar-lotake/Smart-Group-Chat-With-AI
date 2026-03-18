@@ -110,3 +110,36 @@ export const getProject = async ({projectId})=> {
     const project = await projectModel.findOne({_id : projectId}).populate('users')
     return project
 }
+
+export const updateFileTree = async ({projectId, fileTree, userId}) => {
+    if(!projectId){
+        throw new Error("Project Id is required")
+    }
+    if (!mongoose.Types.ObjectId.isValid(projectId)) {
+        throw new Error("Invalid projectId")
+    }
+    if(!fileTree || typeof fileTree !== 'object'){
+        throw new Error("fileTree is required and must be an object")
+    }
+    if (!userId) {
+        throw new Error("userId is required")
+    }
+
+    // Check if user is part of the project
+    const project = await projectModel.findOne({
+        _id: projectId,
+        users: userId
+    })
+    if(!project){
+        throw new Error("You are not authorized to update this project")
+    }
+
+    // Update the fileTree
+    const updatedProject = await projectModel.findOneAndUpdate(
+        { _id: projectId },
+        { fileTree: fileTree },
+        { new: true }
+    ).populate('users')
+
+    return updatedProject
+}

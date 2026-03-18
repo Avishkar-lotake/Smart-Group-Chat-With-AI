@@ -4,7 +4,7 @@ export const getResultController = async(req,res)=>{
     try{
         const {prompt} = req.query
         const result = await ai.generateResult(prompt)
-        res.send(result)
+        res.json(result)
     }
     catch(err){
         console.log(err)

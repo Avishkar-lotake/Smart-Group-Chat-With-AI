@@ -30,30 +30,30 @@ export const createProject = async (req, res) => {
 
 
 }
-// export const createProjectController = async(req,res)=>{
-//     const errors = validationResult(req)
+export const createProjectController = async(req,res)=>{
+    const errors = validationResult(req)
 
-//     if(!errors.isEmpty()){
-//         return res.status(400).json(
-//             {
-//                 error:errors.array()
-//             }
-//         )
-//     }
-//     try{
-//         const {name} = req.body;
-//         const loggedInUser = await ProjectModel.findOne({email:req.user.email})
-//         console.log(loggedInUser)
-//         const userId = loggedInUser._id
-//         const newProject = projectService.createProject({name , userId} )
+    if(!errors.isEmpty()){
+        return res.status(400).json(
+            {
+                error:errors.array()
+            }
+        )
+    }
+    try{
+        const {name} = req.body;
+        const loggedInUser = await ProjectModel.findOne({email:req.user.email})
+        
+        const userId = loggedInUser._id
+        const newProject = projectService.createProject({name , userId} )
     
-//         res.status(201).json({newProject})
-//     }
-//     catch(err){
-//         console.log(err)
-//         res.status(400).send(err.message)
-//     }
-// }
+        res.status(201).json({newProject})
+    }
+    catch(err){
+        console.log(err)
+        res.status(400).send(err.message)
+    }
+}
 export const getAllProjects = async (req, res) => {
 
     try {
@@ -104,4 +104,24 @@ export const getProjectById = async (req,res)=>{
         req.status(400).json({error : message.err})
     }
 
+}
+
+export const updateFileTree = async (req, res) => {
+    const errors = validationResult(req);
+    if(!errors.isEmpty()){
+        return res.status(400).json({errors:errors.array()})
+    }
+
+    try {
+        const { projectId, fileTree } = req.body;
+        const loggedInUser = await userModel.findOne({email:req.user.email})
+        const userId = loggedInUser._id
+
+        const updatedProject = await projectService.updateFileTree({projectId, fileTree, userId})
+
+        return res.status(200).json({project: updatedProject})
+    } catch(err){
+        console.log(err)
+        res.status(401).json({error:err.message})
+    }
 }

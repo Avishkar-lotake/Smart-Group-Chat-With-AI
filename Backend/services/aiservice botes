@@ -1,0 +1,118 @@
+import axios from "axios";
+
+const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
+
+const SYSTEM_PROMPT = `
+You are an expert coding assistant in a real-time code collaboration chat.
+
+Your main responsibilities:
+1. EXPLAIN CODE - Provide clear, concise explanations of code with examples
+2. CODE REVIEW - Offer constructive feedback on code quality, efficiency, and best practices
+3. DEBUG HELP - Help identify and fix bugs by analyzing code and suggesting solutions
+4. ANSWER QUESTIONS - Respond to programming questions with accurate, helpful answers
+5. SUGGEST IMPROVEMENTS - Recommend refactoring, optimization, and better approaches
+6. CODE GENERATION - When asked, generate or edit code files for the user's project.
+
+Output format (VERY IMPORTANT):
+You MUST respond with a single JSON object only, with exactly two top-level keys:
+- "text": string — Your main answer in Markdown (explanations, steps, code snippets as markdown). This is always required.
+- "fileTree": object — When generating or editing files, include entries like
+  "path/to/file.js": { "file": { "contents": "full file content here" } }.
+  When not generating files, use an empty object {}.
+
+Rules:
+- The entire response MUST be valid JSON.
+- Do NOT wrap JSON in Markdown code fences.
+- Do NOT include any extra commentary outside the JSON.
+- All code examples inside "text" should use Markdown code blocks.
+
+If you output anything that is not valid JSON, you have failed your task.
+`;
+
+function withTimeout(promise, ms = 45000) {
+  const timeout = new Promise((_, reject) =>
+    setTimeout(() => reject(new Error("AI Timeout")), ms)
+  );
+  return Promise.race([promise, timeout]);
+}
+
+function parseAiResponse(raw) {
+  let json = { text: raw ?? "", fileTree: {} };
+
+  if (typeof raw !== "string" || raw.trim().length === 0) {
+    return json;
+  }
+
+  try {
+    const direct = JSON.parse(raw);
+    if (direct && typeof direct.text === "string") {
+      return {
+        text: direct.text,
+        fileTree:
+          direct.fileTree && typeof direct.fileTree === "object"
+            ? direct.fileTree
+            : {},
+      };
+    }
+  } catch {}
+
+  const firstFence = raw.indexOf("```");
+  const lastFence = raw.lastIndexOf("```");
+  if (firstFence !== -1 && lastFence > firstFence) {
+    let inside = raw.substring(firstFence + 3, lastFence).trim();
+    inside = inside.replace(/^(json|javascript|js)\s*\n?/, "").trim();
+    try {
+      const obj = JSON.parse(inside);
+      if (obj && typeof obj.text === "string") {
+        return {
+          text: obj.text,
+          fileTree:
+            obj.fileTree && typeof obj.fileTree === "object"
+              ? obj.fileTree
+              : {},
+        };
+      }
+    } catch {}
+  }
+
+  return json;
+}
+
+export const generateResult = async (prompt) => {
+  const payload = {
+    // Model used via OpenRouter
+    model: "deepseek/deepseek-chat",
+
+    messages: [
+      { role: "system", content: SYSTEM_PROMPT },
+      { role: "user", content: prompt },
+    ],
+
+    // Lower randomness for more stable structure
+    temperature: 0,
+
+    // Slightly shorter responses for speed / reliability
+    max_tokens: 1024,
+  };
+
+  const headers = {
+    Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
+    "Content-Type": "application/json",
+  };
+
+  try {
+    const response = await withTimeout(
+      axios.post(OPENROUTER_URL, payload, { headers }),
+      60000
+    );
+    const raw = response.data.choices[0]?.message?.content ?? "";
+    const json = parseAiResponse(raw);
+    return JSON.stringify(json);
+  } catch (err) {
+    console.log("❌ AI ERROR:", err.message);
+    return JSON.stringify({
+      text: "AI unavailable: " + err.message,
+      fileTree: {},
+    });
+  }
+};

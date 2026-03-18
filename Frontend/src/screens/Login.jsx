@@ -1,14 +1,14 @@
 import React, { useContext, useState } from 'react'
 import axios from '../config/axios.js'
 import { useNavigate } from 'react-router-dom'
-import { userContext } from '../context/User.context.jsx'
+import { UserContext } from '../context/user.context'
 
 const Login = () => {
 
     const [email, setEmail] = useState('')
     const [password, setPassword] = useState('')
     const navigate = useNavigate()
-    const {setUser} = useContext(userContext)
+    const {setUser} = useContext(UserContext)
 
     const submitHandler= async (e)=>{
         e.preventDefault();
@@ -79,6 +79,17 @@ const Login = () => {
     >
     Login
     </button>
+    {/* Register link */}
+    <p className="mt-4 text-center text-sm text-gray-600">
+        Don't have an account?{' '}
+        <button
+            type="button"
+            onClick={() => navigate('/register')}
+            className="text-blue-600 hover:underline font-medium"
+        >
+            Register
+        </button>
+    </p>
 </form>
 <div id="form-result" className="mt-4 text-green-600 hidden">
     Login successFull!..

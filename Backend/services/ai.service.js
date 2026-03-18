@@ -1,104 +1,169 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
-const genAI = new GoogleGenerativeAI(process.env.GOOGLE_AI_KEY);
-const model = genAI.getGenerativeModel({
-    model: "gemini-1.5-flash",
-    generationConfig: {
-        responseMimeType: "application/json",
-        // temperature: 0.4,
-    },
+import axios from "axios";
 
-    systemInstruction : `You are an expert in MERN and Development.
-    You have an experience of 10 years in the development.
-    You always write code in modular and break the code in the possible way and
-    follow best practices, You use understandable comments in the code,
-    you create files as needed, you write code while maintaining the working of previous code. 
-    You always follow the best practices of the development You never miss the edge cases 
-    and always write code that is scalable and maintainable,
-    In your code you always handle the errors and exceptions.
-    
+const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 
-    Examples:
+/**
+ * STRICT SYSTEM PROMPT
+ */
+const SYSTEM_PROMPT = `
+You are an expert coding assistant in a real-time code collaboration chat.
 
-    <example>
+Output format (VERY IMPORTANT):
+You MUST respond with a single JSON object only, with exactly two top-level keys:
+- "text": string
+- "fileTree": object
 
-    user:Create an express application
-    response:{
-    "text": "this is you fileTree structure of the express server",
-        "fileTree": {
-        "app.js": {
-            
-                contents: "
-                const express = require('express');
+Rules:
+- The entire response MUST be valid JSON.
+- Do NOT wrap JSON in markdown.
+- Do NOT add extra text outside JSON.
 
-                const app = express();
+Behavior for coding tasks:
+- When the user asks you to "create", "build", or "write" code (for example: "create an express app"),
+  you MUST return the actual runnable code inside "fileTree".
+- Each key in "fileTree" is a filename (for example: "index.js" or "app.js").
+- Each value in "fileTree" should be ONE of:
+  - a plain string (the full file contents), or
+  - an object of the form: { "file": { "contents": "full file contents here" } }.
+- Do NOT leave "fileTree" empty when the user clearly requested code or a project.
+- Use as few files as reasonably possible (often a single file like "index.js" is enough).
 
-
-                app.get('/', (req, res) => {
-                    res.send('Hello World!');
-                });
-
-
-                app.listen(3000, () => {
-                    console.log('Server is running on port 3000');
-                })
-                "
-        },
-    
-        "package.json": {
-            
-                contents: "
-
-                {
-                    "name": "temp-server",
-                    "version": "1.0.0",
-                    "main": "index.js",
-                    "scripts": {
-                        "test": "echo \"Error: no test specified\" && exit 1"
-                    },
-                    "keywords": [],
-                    "author": "",
-                    "license": "ISC",
-                    "description": "",
-                    "dependencies": {
-                        "express": "^4.21.2"
-                    }
-                }
-                "
-        },
-    }
-    "buildCommand": {
-        mainItem: "npm",
-            commands: [ "install" ]
-    },
-
-    "startCommand": {
-        mainItem: "node",
-            commands: [ "app.js" ]
-    }
+If you are only explaining something and no concrete code or files are needed, you may return:
+{
+  "text": "Explanation here",
+  "fileTree": {}
 }
-    </example>
+`;
 
-
-    
-    <example>
-
-        user:Hello
-        response:{
-        "text":"Hello, How can I help you today?"
-        }
-
-    </example>
-    
-    IMPORTANT : don't use file name like routes/index.js
-
-    `
-
-    },
-    );
-
-
-
-export const generateResult = async (prompt)=>{
-    const result = await model.generateContent(prompt)
-    return result.response.text()
+function withTimeout(promise, ms = 45000) {
+  const timeout = new Promise((_, reject) =>
+    setTimeout(() => reject(new Error("AI Timeout")), ms)
+  );
+  return Promise.race([promise, timeout]);
 }
+
+/**
+ * Repair AI JSON String
+ * Case 3A: Trailing comma in object
+raw = '{"text":"Hello","fileTree":{},}'
+
+Case 3B: Trailing comma inside fileTree
+raw = '{"text":"Done","fileTree":{"index.js":"console.log(\\"Hi\\");",}}'
+
+Case 3C: Wrapped in ```json markdown
+raw = '```json\n{"text":"Hello","fileTree":{}}\n`
+ */
+function repairJsonString(str) {
+  if (!str || typeof str !== "string") return str;
+
+  return str
+    .replace(/,\s*}/g, "}")
+    .replace(/,\s*]/g, "]")
+    .replace(/```json/g, "")
+    .replace(/```/g, "")
+    .trim();
+}
+
+
+function normalizeFileTree(fileTree) {
+  if (!fileTree || typeof fileTree !== "object") return {};
+
+  const normalized = {};
+
+  for (const key of Object.keys(fileTree)) {
+    const value = fileTree[key];
+
+    if (typeof value === "string") {
+      normalized[key] = { file: { contents: value } };
+
+    } else if (value?.file?.contents) {
+      normalized[key] = value;
+      
+    } else if (value?.contents) {
+      normalized[key] = { file: { contents: value.contents } };
+    }
+  }
+
+  return normalized;
+}
+
+
+function parseAiResponse(raw) {
+  if (raw === null || raw === undefined) {
+    return { text: "Empty AI response", fileTree: {} };
+  }
+
+  const asString = typeof raw === "string" ? raw : String(raw);
+  const repaired = repairJsonString(asString);
+
+  try {
+    const parsed = JSON.parse(repaired);
+
+    const text =
+      typeof parsed.text === "string"
+        ? parsed.text
+        : parsed.message ??
+          parsed.content ??
+          (typeof asString === "string" ? asString : "AI response unavailable");
+
+    const fileTree = normalizeFileTree(parsed.fileTree);
+
+    return { text, fileTree };
+  } catch {
+    return { text: asString, fileTree: {} };
+  }
+}
+
+
+async function callModel(model, prompt) {
+  const payload = {
+    model,
+    messages: [
+      { role: "system", content: SYSTEM_PROMPT },
+      { role: "user", content: prompt },
+    ],
+    temperature: 0,
+    max_tokens: 2048,
+  };
+
+  const headers = {
+    Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
+    "Content-Type": "application/json",
+  };
+
+  const res = await withTimeout(
+    axios.post(OPENROUTER_URL, payload, { headers }),
+    60000
+  );
+
+  return res.data?.choices?.[0]?.message?.content ?? "";
+}
+
+/**
+ * MAIN EXPORT
+ */
+export const generateResult = async (prompt) => {
+  const MODELS = [
+    "deepseek/deepseek-chat",
+    "mistralai/mistral-7b-instruct",
+  ];
+
+  let lastError = null;
+
+  for (const model of MODELS) {
+    try {
+      const raw = await callModel(model, prompt);
+      const parsed = parseAiResponse(raw);
+
+      return parsed;
+    } catch (err) {
+      lastError = err;
+      console.log(` Model ${model} failed:`, err.message);
+    }
+  }
+
+  return {
+    text: "AI unavailable: " + (lastError?.message || "Unknown error"),
+    fileTree: {},
+  };
+};

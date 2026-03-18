@@ -12,7 +12,10 @@ const port = process.env.PORT || 3000
 const server = http.createServer(app)
 const io = new Server(server , {
     cors :{
-        origin :'*'
+        origin : process.env.NODE_ENV === 'production' 
+            ? ['https://your-app-name.vercel.app'] 
+            : ['http://localhost:5173', 'http://localhost:3000'],
+        credentials: true
     }
 });
 
@@ -51,26 +54,37 @@ io.on('connection', socket => {
     console.log('a user connected')
     socket.join(socket.roomId) 
 
-    socket.on('project-message', async data =>{
-    const message = data.message;
-    const aiIsPresentInMessage = message.includes('@ai')
-    socket.broadcast.to(socket.roomId).emit('project-message',data)
+    
 
-    if(aiIsPresentInMessage){
-        const prompt = message.replace('@ai','')
-        const result = await generateResult(prompt)
-        io.to(socket.roomId).emit('project-message',{
-            sender :{
-                _id : 'ai',
-                email : "@ai"
-            },
-            message:result
-        })
-        return
-    }      
-        //io.to(socket.roomId) will send message to both sender and receiver thats why
-        //we used socket.broadcast.to()
-    })
+socket.on('project-message', async data => {
+
+  const message = data.message;
+  const aiIsPresent = message.includes('@ai');
+
+  socket.broadcast.to(socket.roomId).emit('project-message', data);
+
+  if (aiIsPresent) {
+    try {
+      const prompt = message.replace('@ai', '').trim();
+      console.log(" AI Prompt received:", prompt);
+
+      const result = await generateResult(prompt);
+      console.log(" AI Result being sent:", result);
+
+      io.to(socket.roomId).emit('project-message', {
+        sender: {
+          _id: 'ai',
+          email: '@ai'
+        },
+        message: result
+      });
+
+    } catch (err) {
+      console.log("AI Socket Error", err);
+    }
+  }
+});
+
     socket.on('disconnect', () => {
         console.log('user Disconnected')
         socket.leave(socket.roomId)

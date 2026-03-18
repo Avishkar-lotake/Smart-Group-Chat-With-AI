@@ -11,6 +11,13 @@ import cors from 'cors'
 connect()
 const app = express()
 
+// WebContainer CORS isolation headers (must come before other middleware)
+app.use((req, res, next) => {
+  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+  res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
+  next();
+});
+
 // import projectRoutes from './routes/project.routes.js'
 // cors policy of backend by default restricts everyone to access backend routes
 // thats why we use this cors package so that our frontend can access backend
@@ -22,4 +29,5 @@ app.use(cookieParser())
 app.use('/projects',projectRoutes)
 app.use('/users',userRoutes)
 app.use('/ai',aiRoutes)
+
 export default app
