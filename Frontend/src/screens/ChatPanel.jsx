@@ -20,12 +20,12 @@ const ChatPanel = ({
         <section className="left relative flex flex-col h-screen min-w-96 bg-slate-300">
             <header className="flex justify-between items-center p-2 px-4 w-full bg-slate-100 absolute z-10 top-0">
                 <button className="flex gap-2">
-                    <i className="ri-add-fill mr-1"></i>
+                    <span className="mr-1">+</span>
                     <p>Add collaborator</p>
                 </button>
 
                 <button className="p-2">
-                    <i className="ri-group-fill"></i>
+                    <span>👥</span>
                 </button>
             </header>
 
@@ -68,7 +68,7 @@ const ChatPanel = ({
                         onClick={onSend}
                         className="px-5 bg-slate-950 text-white"
                     >
-                        <i className="ri-send-plane-fill"></i>
+                        <span>📤</span>
                     </button>
                 </div>
             </div>
