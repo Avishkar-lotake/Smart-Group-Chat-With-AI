@@ -70,6 +70,7 @@ const Project = () => {
                 message={message}
                 setMessage={setMessage}
                 onSend={send}
+                project={project}
             />
 
             <AiPreviewPanel
