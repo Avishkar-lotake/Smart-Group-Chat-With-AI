@@ -33,6 +33,7 @@ const ChatPanel = ({
     // Set project users when project changes
     useEffect(() => {
         if (project?.users) {
+            console.log('Project users data:', project.users)
             setProjectUsers(project.users)
         }
     }, [project])
@@ -40,6 +41,7 @@ const ChatPanel = ({
     const fetchAllUsers = async () => {
         try {
             const response = await axios.get('/users/all')
+            console.log('All users response:', response.data)
             setAllUsers(response.data.users || [])
         } catch (error) {
             console.error('Error fetching users:', error)
@@ -153,7 +155,7 @@ const ChatPanel = ({
                                     />
                                     <label htmlFor={user._id} className="flex-1 cursor-pointer">
                                         <div>
-                                            <p className="font-medium">{user.email}</p>
+                                            <p className="font-medium text-gray-800">{user.email}</p>
                                         </div>
                                     </label>
                                 </div>
@@ -191,12 +193,12 @@ const ChatPanel = ({
                         <div className="max-h-60 overflow-y-auto">
                             {projectUsers.length > 0 ? (
                                 projectUsers.map((user) => (
-                                    <div key={user._id} className="p-2 hover:bg-gray-100">
-                                        <p className="font-medium">{user.email}</p>
+                                    <div key={user._id} className="p-2 hover:bg-gray-100 border-b">
+                                        <p className="font-medium text-gray-800">{user.email}</p>
                                     </div>
                                 ))
                             ) : (
-                                <p className="text-gray-500">No collaborators yet</p>
+                                <p className="text-gray-500 p-4">No collaborators yet</p>
                             )}
                         </div>
 
