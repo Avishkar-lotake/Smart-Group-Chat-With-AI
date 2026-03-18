@@ -8,6 +8,7 @@ const Register = () => {
 
     const [email, setEmail] = useState('')
     const [password, setPassword] = useState('')
+    const [showSuccess, setShowSuccess] = useState(false)
 
     const {setUser} =  useContext(UserContext)
     const navigate = useNavigate()
@@ -32,8 +33,9 @@ const Register = () => {
         console.log(res.data)
         localStorage.setItem('token', res.data.token)
         setUser(res.data.user)
+        setShowSuccess(true)
 
-        navigate('/')
+        navigate('/login')
     }).catch((err) =>
         {console.log(err.response.data)}
         )
@@ -83,9 +85,9 @@ const Register = () => {
         onChange={(e)=>{
         setPassword(e.target.value)
         }}
-            type="tel"
-            id="phone"
-            name="phone"
+            type="password"
+            id="password"
+            name="password"
             className="w-full border border-gray-300 rounded px-3 py-2"
             required
         />
@@ -98,8 +100,8 @@ const Register = () => {
         Register
         </button>
     </form>
-    <div id="form-result" className="mt-4 text-green-600 hidden">
-        Registration successful!
+    <div id="form-result" className={`mt-4 text-green-600 ${showSuccess ? '' : 'hidden'}`}>
+        Registration successful! Please login to continue.
     </div>
     </div>
 
