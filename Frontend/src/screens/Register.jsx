@@ -2,7 +2,7 @@ import React from 'react'
 import { useState ,useContext} from 'react'
 import {useNavigate} from 'react-router-dom'
 import axios from '../config/axios'
-import {UserContext} from '../context/user.context'
+import { UserContext } from '../context/User.context.jsx'
 
 const Register = () => {
 

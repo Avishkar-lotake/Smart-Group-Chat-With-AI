@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useContext } from 'react'
-import { UserContext } from '../context/User.context'
+import { UserContext } from '../context/User.context.jsx'
 import { useLocation } from 'react-router-dom'
 import axios from '../config/axios'
 import { initializeSocket, receiveMessage, removeMessageListener, sendMessage } from '../config/socket'
