@@ -1,5 +1,12 @@
 {
   "version": 2,
+  "github": {
+    "silent": true
+  },
+  "buildCommand": "cd Frontend && npm run build",
+  "outputDirectory": "Frontend/dist",
+  "installCommand": "cd Frontend && npm install",
+  "framework": "vite",
   "builds": [
     {
       "src": "Frontend/package.json",
@@ -25,10 +32,5 @@
   ],
   "env": {
     "NODE_ENV": "production"
-  },
-  "build": {
-    "env": {
-      "BUILD_TIME": "2025-03-19-01:25"
-    }
   }
 }
