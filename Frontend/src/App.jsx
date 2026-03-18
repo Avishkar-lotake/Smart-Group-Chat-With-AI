@@ -1,6 +1,7 @@
 import React from 'react'
 import AppRoutes from './routes/AppRoutes'
-import UserProvider from './context/User.context.jsx'
+import UserProvider from './context/User.context.jsx' // Fixed import path
+
 const App = () => {
   return (
 
