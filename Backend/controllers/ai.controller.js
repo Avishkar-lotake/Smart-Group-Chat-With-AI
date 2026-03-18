@@ -8,6 +8,6 @@ export const getResultController = async(req,res)=>{
     }
     catch(err){
         console.log(err)
-        req.status(500).send({message:err.message})
+        res.status(500).send({message:err.message})
     }
 }

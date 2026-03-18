@@ -21,6 +21,15 @@ const Home = () => {
         .then((res) => {
             console.log(res)
             setIsModalOpen(false)
+            setProjectName('')
+            
+            // Refresh project list
+            axios.get('/projects/all').then((res)=>{            
+                setProject(res.data.projects)
+                console.log(res.data)
+            }).catch(err =>{
+                console.log(err)
+            })
         })
         .catch((error) => {
             console.error(error)

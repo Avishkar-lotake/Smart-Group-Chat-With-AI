@@ -116,6 +116,9 @@ function parseAiResponse(raw) {
 
 
 async function callModel(model, prompt) {
+  console.log("API Key loaded:", process.env.OPENROUTER_API_KEY ? "YES" : "NO");
+  console.log("API Key length:", process.env.OPENROUTER_API_KEY?.length || 0);
+  
   const payload = {
     model,
     messages: [
@@ -130,6 +133,9 @@ async function callModel(model, prompt) {
     Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
     "Content-Type": "application/json",
   };
+
+  console.log("Making request to:", OPENROUTER_URL);
+  console.log("Headers:", { ...headers, Authorization: "Bearer [HIDDEN]" });
 
   const res = await withTimeout(
     axios.post(OPENROUTER_URL, payload, { headers }),
@@ -159,6 +165,14 @@ export const generateResult = async (prompt) => {
     } catch (err) {
       lastError = err;
       console.log(` Model ${model} failed:`, err.message);
+      
+      // If it's a 401 error, the API key is invalid
+      if (err.response?.status === 401) {
+        return {
+          text: "AI service unavailable: Invalid API key. Please check your OpenRouter API key configuration.",
+          fileTree: {},
+        };
+      }
     }
   }
 
